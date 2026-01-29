@@ -2,46 +2,68 @@ import streamlit as st
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
-import pymupdf  # PyMuPDF per estrazione base
-import pdfplumber  # per tabelle e testo strutturato
+import pymupdf  # PyMuPDF
+import pdfplumber
 
-# Carica variabili d'ambiente
-load_dotenv()
+# ────────────────────────────────────────────────────────────────
+# Caricamento variabili d'ambiente / Secrets
+# ────────────────────────────────────────────────────────────────
+
+load_dotenv()  # utile in locale con file .env
+
 VENICE_API_KEY = os.getenv("VENICE_API_KEY")
+APP_USERNAME   = os.getenv("APP_USERNAME")
+APP_PASSWORD   = os.getenv("APP_PASSWORD")
+
 if not VENICE_API_KEY:
-    st.error("Chiave API Venice non trovata. Verifica il file .env con VENICE_API_KEY.")
+    st.error("Chiave API Venice non trovata. Verifica i Secrets di Streamlit Cloud o il file .env.")
     st.stop()
+
+if not APP_USERNAME or not APP_PASSWORD:
+    st.warning("Credenziali di login non configurate nei Secrets. L'accesso è aperto a tutti per test.")
+    # Se vuoi bloccare completamente quando mancano le credenziali, decommenta le righe seguenti:
+    # st.error("APP_USERNAME e/o APP_PASSWORD non definiti nei Secrets.")
+    # st.stop()
 
 client = OpenAI(
     api_key=VENICE_API_KEY,
     base_url="https://api.venice.ai/api/v1"
 )
 
-# Login semplice (prototipo – modifica credenziali in produzione)
+# ────────────────────────────────────────────────────────────────
+# Autenticazione basata su variabili d'ambiente / Secrets
+# ────────────────────────────────────────────────────────────────
+
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
     st.title("Accesso al Tool di Verifica Coerenza PDDC")
+
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
+
     if st.button("Accedi"):
-        if username == "admin" and password == "pddc2026":  # Cambia immediatamente!
+        if username == APP_USERNAME and password == APP_PASSWORD:
             st.session_state.authenticated = True
             st.success("Accesso effettuato correttamente.")
             st.rerun()
         else:
             st.error("Credenziali non valide.")
-    st.stop()
 
-# Interfaccia principale
+    st.stop()  # blocca tutto il resto finché non si è autenticati
+
+# ────────────────────────────────────────────────────────────────
+# Interfaccia principale – solo dopo login riuscito
+# ────────────────────────────────────────────────────────────────
+
 st.title("Verifica Coerenza Interna tra PDDC e Allegati")
 
 pddc_file = st.file_uploader("Carica il file PDDC principale (PDF)", type=["pdf"])
 allegati_files = st.file_uploader("Carica gli allegati (PDF multipli)", type=["pdf"], accept_multiple_files=True)
 
 if st.button("Avvia Analisi") and pddc_file:
-    with st.spinner("Estrazione testo dai documenti..."):
+    with st.spinner("Estrazione testo dai documenti…"):
         # Estrazione testo PDDC
         pddc_text = ""
         doc = pymupdf.open(stream=pddc_file.read(), filetype="pdf")
@@ -65,21 +87,14 @@ if st.button("Avvia Analisi") and pddc_file:
 
     st.success("Estrazione completata.")
 
-    # Prompt ottimizzato per Gemma 3 27B
+    # ────────────────────────────────────────────────────────────────
+    # Prompt engineering avanzato
+    # ────────────────────────────────────────────────────────────────
+
     prompt = f"""
-Analisi di conformità interna per atti di affidamento pubblico.
-
-TESTO PDDC PRINCIPALE:
-{pddc_text[:12000]}  # limite conservativo per contesto
-
-ALLEGATI ESTRATTI:
-"""
-
-    for nome, testo in allegati_testi.items():
-        prompt += f"\n--- ALLEGATO: {nome} ---\n{testo[:6000]}\n"
-
-prompt = f"""
-Ruolo: Sei un esperto funzionario amministrativo specializzato in procedure di affidamento pubblico (D.Lgs. 36/2023). Il tuo unico compito è verificare la coerenza interna tra la Proposta/Determina a Contrarre (PDDC) e i suoi allegati estratti, senza esprimere giudizi normativi generali.
+Ruolo: Sei un esperto funzionario amministrativo specializzato in procedure di affidamento pubblico (D.Lgs. 36/2023). 
+Il tuo unico compito è verificare la coerenza interna tra la Proposta/Determina a Contrarre (PDDC) e i suoi allegati estratti, 
+senza esprimere giudizi normativi generali.
 
 Contesto: Devi controllare SOLO la corrispondenza interna tra documento principale e allegati.
 
@@ -96,28 +111,16 @@ Ragionamento obbligatorio (Chain-of-Thought):
 3. Segnala discrepanze con spiegazione precisa.
 4. Assegna esito complessivo.
 
-Esempi few-shot (usa come riferimento):
-Esempio 1:
-PDDC: Oggetto "Fornitura carta A4", Importo 5.000 €, Contraente "Carta Srl P.IVA 01234567890"
-Allegato 1: Preventivo "Fornitura carta A4" per 5.000 €
-Allegato 2: Preventivo "Carta Srl" per 5.000 €
-Output atteso: {{"esito_complessivo": "CONFORME", "criticita": [{"elemento": "Oggetto", "esito": "OK", "spiegazione": "Corrispondenza esatta"}, ...]}}
-
-Esempio 2:
-PDDC: Importo 10.000 €
-Allegato 1: Totale 9.500 €
-Output atteso: {{"esito_complessivo": "CONFORME CON RISERVE", "criticita": [{"elemento": "Importo", "esito": "WARNING", "spiegazione": "Differenza del 5%, tolleranza superata"}]}} 
-
 TESTO PDDC PRINCIPALE:
 {pddc_text[:12000]}
 
 ALLEGATI ESTRATTI:
 """
 
-for nome, testo in allegati_testi.items():
-    prompt += f"\n--- ALLEGATO: {nome} ---\n{testo[:6000]}\n"
+    for nome, testo in allegati_testi.items():
+        prompt += f"\n--- ALLEGATO: {nome} ---\n{testo[:6000]}\n"
 
-prompt += """
+    prompt += """
 Output SOLO JSON valido, senza testo aggiuntivo o commenti esterni:
 {
   "esito_complessivo": "CONFORME" | "CONFORME CON RISERVE" | "NON CONFORME",
@@ -128,7 +131,7 @@ Output SOLO JSON valido, senza testo aggiuntivo o commenti esterni:
 }
 """
 
-    with st.spinner("Analisi con Google Gemma 3 27B Instruct in corso..."):
+    with st.spinner("Analisi con Google Gemma 3 27B Instruct in corso…"):
         try:
             response = client.chat.completions.create(
                 model="google-gemma-3-27b-it",
