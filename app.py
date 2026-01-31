@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import json
 from openai import OpenAI
 from dotenv import load_dotenv
 import pymupdf  # PyMuPDF
@@ -8,7 +9,7 @@ import pdfplumber
 # ────────────────────────────────────────────────────────────────
 # Caricamento variabili d'ambiente / Secrets
 # ────────────────────────────────────────────────────────────────
-load_dotenv()  # utile in locale con file .env
+load_dotenv()
 
 VENICE_API_KEY = os.getenv("VENICE_API_KEY")
 APP_USERNAME   = os.getenv("APP_USERNAME")
@@ -20,8 +21,8 @@ if not VENICE_API_KEY:
 
 if not APP_USERNAME or not APP_PASSWORD:
     st.warning("Credenziali di login non configurate nei Secrets. L'accesso è aperto a tutti per test.")
-    # Se vuoi bloccare completamente quando mancano le credenziali, decommenta:
-    # st.error("APP_USERNAME e/o APP_PASSWORD non definiti nei Secrets.")
+    # Decommenta se vuoi bloccare:
+    # st.error("APP_USERNAME e/o APP_PASSWORD non definiti.")
     # st.stop()
 
 client = OpenAI(
@@ -30,7 +31,70 @@ client = OpenAI(
 )
 
 # ────────────────────────────────────────────────────────────────
-# Autenticazione basata su variabili d'ambiente / Secrets
+# Funzione per convertire JSON → testo leggibile con colori ed emoji
+# ────────────────────────────────────────────────────────────────
+def json_to_human_readable(report_str):
+    try:
+        data = json.loads(report_str)
+    except json.JSONDecodeError:
+        return "<span style='color:red'>Errore: output del modello non valido.</span><br><br>" + report_str
+
+    lines = []
+
+    # Esito complessivo – grande e colorato
+    esito = data.get("esito_complessivo", "N/D")
+    if esito == "CONFORME":
+        color = "green"
+        emoji = "✅"
+    elif esito == "CONFORME CON RISERVE":
+        color = "orange"
+        emoji = "⚠️"
+    else:
+        color = "red"
+        emoji = "❌"
+
+    lines.append(f"<h2 style='color:{color};'>{emoji} Esito complessivo: {esito}</h2>")
+
+    # Pertinenza allegati
+    if "pertinenza_allegati" in data and data["pertinenza_allegati"]:
+        lines.append("<h4>Pertinenza degli allegati:</h4>")
+        for item in data["pertinenza_allegati"]:
+            stato = item.get("pertinente", False)
+            em = "✅" if stato else "❌"
+            col = "green" if stato else "red"
+            nome = item.get("nome_allegato", "N/D")
+            mot = item.get("motivazione", "")
+            lines.append(f"<span style='color:{col};'>{em} {nome}: {mot}</span><br>")
+        lines.append("<br>")
+
+    # Criticità
+    if "criticita" in data and data["criticita"]:
+        lines.append("<h4>Criticità rilevate:</h4>")
+        for c in data["criticita"]:
+            elem = c.get("elemento", "N/D")
+            es = c.get("esito", "N/D")
+            spieg = c.get("spiegazione", "")
+            if es == "OK":
+                em = "✅"
+                col = "green"
+            elif es == "WARNING":
+                em = "⚠️"
+                col = "orange"
+            else:
+                em = "❌"
+                col = "red"
+            lines.append(f"<span style='color:{col};'>{em} <strong>{elem}:</strong> {spieg}</span><br>")
+        lines.append("<br>")
+
+    # Dettagli
+    if "dettagli" in data:
+        lines.append("<h4>Dettagli:</h4>")
+        lines.append(f"<p>{data['dettagli']}</p>")
+
+    return "\n".join(lines) if lines else "<span style='color:orange'>Nessun report dettagliato generato.</span>"
+
+# ────────────────────────────────────────────────────────────────
+# Autenticazione
 # ────────────────────────────────────────────────────────────────
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
@@ -49,10 +113,10 @@ if not st.session_state.authenticated:
         else:
             st.error("Credenziali non valide.")
 
-    st.stop()  # blocca tutto il resto finché non si è autenticati
+    st.stop()
 
 # ────────────────────────────────────────────────────────────────
-# Interfaccia principale – solo dopo login riuscito
+# Interfaccia principale
 # ────────────────────────────────────────────────────────────────
 st.title("Verifica Coerenza Interna tra PDDC e Allegati")
 
@@ -61,14 +125,12 @@ allegati_files = st.file_uploader("Carica gli allegati (PDF multipli)", type=["p
 
 if st.button("Avvia Analisi") and pddc_file:
     with st.spinner("Estrazione testo dai documenti…"):
-        # Estrazione testo PDDC
         pddc_text = ""
         doc = pymupdf.open(stream=pddc_file.read(), filetype="pdf")
         for page in doc:
             pddc_text += page.get_text("text") + "\n"
         doc.close()
 
-        # Estrazione testi allegati
         allegati_testi = {}
         for allegato in allegati_files:
             allegato.seek(0)
@@ -85,7 +147,7 @@ if st.button("Avvia Analisi") and pddc_file:
     st.success("Estrazione completata.")
 
     # ────────────────────────────────────────────────────────────────
-    # Prompt engineering avanzato
+    # Prompt engineering avanzato (con controllo pertinenza)
     # ────────────────────────────────────────────────────────────────
     prompt = f"""
 Ruolo: Sei un esperto funzionario amministrativo specializzato in procedure di affidamento pubblico (D.Lgs. 36/2023).  
@@ -142,8 +204,10 @@ Output SOLO JSON valido, senza testo aggiuntivo:
                 response_format={"type": "json_object"}
             )
             report_json = response.choices[0].message.content
+            readable_report = json_to_human_readable(report_json)
+
             st.subheader("Report di Verifica Coerenza")
-            st.json(report_json)
+            st.markdown(readable_report, unsafe_allow_html=True)
             st.info(f"Token utilizzati: {response.usage.total_tokens}")
         except Exception as e:
             st.error(f"Errore durante l'analisi API: {str(e)}")
