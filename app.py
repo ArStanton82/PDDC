@@ -92,29 +92,48 @@ if st.button("Avvia Analisi") and pddc_file:
     # ────────────────────────────────────────────────────────────────
 
     prompt = f"""
-Ruolo: Sei un esperto funzionario amministrativo specializzato in procedure di affidamento pubblico (D.Lgs. 36/2023). 
-Il tuo unico compito è verificare la coerenza interna tra la Proposta/Determina a Contrarre (PDDC) e i suoi allegati estratti, 
-senza esprimere giudizi normativi generali.
+Ruolo: Sei un esperto funzionario amministrativo specializzato in procedure di affidamento pubblico (D.Lgs. 36/2023).  
+Il tuo unico compito è verificare la **coerenza interna e la pertinenza** tra la Proposta/Determina a Contrarre (PDDC) e i suoi allegati estratti.
 
-Contesto: Devi controllare SOLO la corrispondenza interna tra documento principale e allegati.
+Regola fondamentale:  
+- Gli allegati devono essere **chiaramente riferiti alla stessa procedura/oggetto** descritto nella PDDC.  
+- Se un allegato appare estraneo, non correlato o appartenente a un'altra pratica (es. diverso oggetto, diverso contraente, diverso CIG/CUP), l'esito complessivo deve essere **NON CONFORME** con motivazione esplicita.
 
-Elementi da verificare (in ordine):
+Ragionamento obbligatorio (Chain-of-Thought – segui esattamente quest'ordine):
+1. Valuta la pertinenza globale di ciascun allegato rispetto alla PDDC (oggetto principale, CIG/CUP, contraente, riferimenti normativi).  
+   → Se non è pertinente → termina con esito NON CONFORME.
+2. Solo se tutti gli allegati sono pertinenti, procedi al confronto dettagliato degli elementi.
+3. Identifica gli elementi chiave dalla PDDC.
+4. Confronta ciascun elemento con gli allegati.
+5. Segnala ogni discrepanza con spiegazione precisa.
+6. Assegna esito complessivo.
+
+Elementi da verificare (solo se pertinenti):
 1. Oggetto dell'affidamento: corrispondenza testuale o sostanziale.
 2. Importo stimato / valore economico: corrispondenza numerica (tolleranza ±1%).
 3. Contraente / operatore economico: nome, P.IVA o riferimenti coincidono.
-4. Motivazione scelta procedura/contraente: supportata da allegati concreti (es. preventivi comparati).
-5. Elementi essenziali: CIG/CUP, RUP, durata, copertura finanziaria, luogo di esecuzione coincidono.
-
-Ragionamento obbligatorio (Chain-of-Thought):
-1. Identifica gli elementi chiave dalla PDDC.
-2. Confronta ciascun elemento con gli allegati.
-3. Segnala discrepanze con spiegazione precisa.
-4. Assegna esito complessivo.
+4. Motivazione scelta procedura/contraente: supportata da allegati concreti.
+5. Elementi essenziali: CIG/CUP, RUP, durata, copertura finanziaria, luogo coincidono.
 
 TESTO PDDC PRINCIPALE:
 {pddc_text[:12000]}
 
 ALLEGATI ESTRATTI:
+"""
+
+for nome, testo in allegati_testi.items():
+    prompt += f"\n--- ALLEGATO: {nome} ---\n{testo[:6000]}\n"
+
+prompt += """
+Output SOLO JSON valido, senza testo aggiuntivo:
+{
+  "esito_complessivo": "CONFORME" | "CONFORME CON RISERVE" | "NON CONFORME",
+  "pertinenza_allegati": [{"nome_allegato": "...", "pertinente": true/false, "motivazione": "..."}],
+  "criticita": [
+    {"elemento": "...", "esito": "OK"|"WARNING"|"ERROR", "spiegazione": "..."}
+  ],
+  "dettagli": "Riassunto sintetico della verifica"
+}
 """
 
     for nome, testo in allegati_testi.items():
