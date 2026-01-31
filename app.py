@@ -121,7 +121,7 @@ TESTO PDDC PRINCIPALE:
 ALLEGATI ESTRATTI:
 """
 
-for nome, testo in allegati_testi.items():
+    for nome, testo in allegati_testi.items():
     prompt += f"\n--- ALLEGATO: {nome} ---\n{testo[:6000]}\n"
 
 prompt += """
