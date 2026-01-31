@@ -8,7 +8,6 @@ import pdfplumber
 # ────────────────────────────────────────────────────────────────
 # Caricamento variabili d'ambiente / Secrets
 # ────────────────────────────────────────────────────────────────
-
 load_dotenv()  # utile in locale con file .env
 
 VENICE_API_KEY = os.getenv("VENICE_API_KEY")
@@ -21,7 +20,7 @@ if not VENICE_API_KEY:
 
 if not APP_USERNAME or not APP_PASSWORD:
     st.warning("Credenziali di login non configurate nei Secrets. L'accesso è aperto a tutti per test.")
-    # Se vuoi bloccare completamente quando mancano le credenziali, decommenta le righe seguenti:
+    # Se vuoi bloccare completamente quando mancano le credenziali, decommenta:
     # st.error("APP_USERNAME e/o APP_PASSWORD non definiti nei Secrets.")
     # st.stop()
 
@@ -33,7 +32,6 @@ client = OpenAI(
 # ────────────────────────────────────────────────────────────────
 # Autenticazione basata su variabili d'ambiente / Secrets
 # ────────────────────────────────────────────────────────────────
-
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
 
@@ -56,7 +54,6 @@ if not st.session_state.authenticated:
 # ────────────────────────────────────────────────────────────────
 # Interfaccia principale – solo dopo login riuscito
 # ────────────────────────────────────────────────────────────────
-
 st.title("Verifica Coerenza Interna tra PDDC e Allegati")
 
 pddc_file = st.file_uploader("Carica il file PDDC principale (PDF)", type=["pdf"])
@@ -90,14 +87,13 @@ if st.button("Avvia Analisi") and pddc_file:
     # ────────────────────────────────────────────────────────────────
     # Prompt engineering avanzato
     # ────────────────────────────────────────────────────────────────
-
     prompt = f"""
 Ruolo: Sei un esperto funzionario amministrativo specializzato in procedure di affidamento pubblico (D.Lgs. 36/2023).  
-Il tuo unico compito è verificare la **coerenza interna e la pertinenza** tra la Proposta/Determina a Contrarre (PDDC) e i suoi allegati estratti.
+Il tuo unico compito è verificare la coerenza interna e la pertinenza tra la Proposta/Determina a Contrarre (PDDC) e i suoi allegati estratti.
 
 Regola fondamentale:  
-- Gli allegati devono essere **chiaramente riferiti alla stessa procedura/oggetto** descritto nella PDDC.  
-- Se un allegato appare estraneo, non correlato o appartenente a un'altra pratica (es. diverso oggetto, diverso contraente, diverso CIG/CUP), l'esito complessivo deve essere **NON CONFORME** con motivazione esplicita.
+- Gli allegati devono essere chiaramente riferiti alla stessa procedura/oggetto descritto nella PDDC.  
+- Se un allegato appare estraneo, non correlato o appartenente a un'altra pratica, l'esito complessivo deve essere NON CONFORME con motivazione esplicita.
 
 Ragionamento obbligatorio (Chain-of-Thought – segui esattamente quest'ordine):
 1. Valuta la pertinenza globale di ciascun allegato rispetto alla PDDC (oggetto principale, CIG/CUP, contraente, riferimenti normativi).  
@@ -122,29 +118,15 @@ ALLEGATI ESTRATTI:
 """
 
     for nome, testo in allegati_testi.items():
-    prompt += f"\n--- ALLEGATO: {nome} ---\n{testo[:6000]}\n"
+        prompt += f"\n--- ALLEGATO: {nome} ---\n{testo[:6000]}\n"
 
-prompt += """
+    prompt += """
 Output SOLO JSON valido, senza testo aggiuntivo:
 {
   "esito_complessivo": "CONFORME" | "CONFORME CON RISERVE" | "NON CONFORME",
   "pertinenza_allegati": [{"nome_allegato": "...", "pertinente": true/false, "motivazione": "..."}],
   "criticita": [
     {"elemento": "...", "esito": "OK"|"WARNING"|"ERROR", "spiegazione": "..."}
-  ],
-  "dettagli": "Riassunto sintetico della verifica"
-}
-"""
-
-    for nome, testo in allegati_testi.items():
-        prompt += f"\n--- ALLEGATO: {nome} ---\n{testo[:6000]}\n"
-
-    prompt += """
-Output SOLO JSON valido, senza testo aggiuntivo o commenti esterni:
-{
-  "esito_complessivo": "CONFORME" | "CONFORME CON RISERVE" | "NON CONFORME",
-  "criticita": [
-    {"elemento": "Oggetto"|"Importo"|"Contraente"|"Motivazione"|"CIG/CUP"|"RUP"|"Durata"|"Altro", "esito": "OK"|"WARNING"|"ERROR", "spiegazione": "..."}
   ],
   "dettagli": "Riassunto sintetico della verifica"
 }
