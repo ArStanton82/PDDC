@@ -194,10 +194,10 @@ Output SOLO JSON valido, senza testo aggiuntivo:
 }
 """
 
-    with st.spinner("Analisi con Google Gemma 3 27B Instruct in corso…"):
+    with st.spinner("Analisi con kimi-k2-thinking Instruct in corso…"):
         try:
             response = client.chat.completions.create(
-                model="google-gemma-3-27b-it",
+                model="kimi-k2-thinking-it",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 max_tokens=2000,
